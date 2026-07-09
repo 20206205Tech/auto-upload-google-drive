@@ -1,8 +1,10 @@
 import json
+from uuid import UUID
 
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from database.models import TransferJob
+from database.config import SessionLocal
 from utils.auth import (
     build_drive_service,
     credentials_from_google_account,
@@ -35,25 +37,57 @@ def get_refreshed_credentials(db: Session, gmail_address: str):
     return credentials
 
 
+def complete_transfer_job_with_retry(transfer_job_id: UUID) -> None:
+    for attempt in range(2):
+        db = SessionLocal()
+        try:
+            complete_transfer_job(db, transfer_job_id)
+            return
+        except OperationalError:
+            db.rollback()
+            if attempt == 1:
+                raise
+        finally:
+            db.close()
+
+
+def fail_transfer_job_with_retry(transfer_job_id: UUID, error: Exception) -> None:
+    for attempt in range(2):
+        db = SessionLocal()
+        try:
+            fail_transfer_job(db, transfer_job_id, error)
+            return
+        except OperationalError:
+            db.rollback()
+            if attempt == 1:
+                raise
+        finally:
+            db.close()
+
+
 def transfer_folder_contents(
-    db: Session,
     source_gmail: str,
     source_folder: str,
     dest_gmail: str,
 ) -> str:
     source_folder_id = extract_drive_folder_id(source_folder)
-    transfer_job: TransferJob | None = None
+    transfer_job_id = None
+    dest_folder_id = ""
 
     try:
-        source_credentials = get_refreshed_credentials(db, source_gmail)
-        dest_credentials = get_refreshed_credentials(db, dest_gmail)
-
-        transfer_job = create_transfer_job(
-            db,
-            source_gmail,
-            source_folder_id,
-            dest_gmail,
-        )
+        db = SessionLocal()
+        try:
+            source_credentials = get_refreshed_credentials(db, source_gmail)
+            dest_credentials = get_refreshed_credentials(db, dest_gmail)
+            transfer_job = create_transfer_job(
+                db,
+                source_gmail,
+                source_folder_id,
+                dest_gmail,
+            )
+            transfer_job_id = transfer_job.id
+        finally:
+            db.close()
 
         source_service = build_drive_service(source_credentials)
         dest_service = build_drive_service(dest_credentials)
@@ -66,10 +100,10 @@ def transfer_folder_contents(
             dest_folder_id,
             dest_gmail,
         )
-        complete_transfer_job(db, transfer_job)
+        complete_transfer_job_with_retry(transfer_job_id)
     except Exception as error:
-        if transfer_job is not None:
-            fail_transfer_job(db, transfer_job, error)
+        if transfer_job_id is not None:
+            fail_transfer_job_with_retry(transfer_job_id, error)
         raise
 
     return dest_folder_id

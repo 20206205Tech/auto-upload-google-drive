@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -68,13 +69,21 @@ def create_transfer_job(
     return transfer_job
 
 
-def complete_transfer_job(db: Session, transfer_job: TransferJob) -> None:
+def complete_transfer_job(db: Session, transfer_job_id: UUID) -> None:
+    transfer_job = db.get(TransferJob, transfer_job_id)
+    if transfer_job is None:
+        raise ValueError(f"No transfer job found for {transfer_job_id}.")
+
     transfer_job.status = "completed"
     transfer_job.completed_at = datetime.now()
     db.commit()
 
 
-def fail_transfer_job(db: Session, transfer_job: TransferJob, error: Exception) -> None:
+def fail_transfer_job(db: Session, transfer_job_id: UUID, error: Exception) -> None:
+    transfer_job = db.get(TransferJob, transfer_job_id)
+    if transfer_job is None:
+        raise ValueError(f"No transfer job found for {transfer_job_id}.")
+
     transfer_job.status = "failed"
     transfer_job.error_message = str(error)
     transfer_job.completed_at = datetime.now()

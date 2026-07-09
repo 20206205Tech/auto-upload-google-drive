@@ -72,16 +72,11 @@ def transfer(
     ),
 ) -> None:
     """Move all contents from a source Drive folder to a timestamped destination folder."""
-    db = SessionLocal()
-    try:
-        dest_folder_id = transfer_folder_contents(
-            db,
-            source_gmail,
-            source_folder,
-            dest_gmail,
-        )
-    finally:
-        db.close()
+    dest_folder_id = transfer_folder_contents(
+        source_gmail,
+        source_folder,
+        dest_gmail,
+    )
 
     typer.echo(
         f"Transferred source folder contents to destination folder: {dest_folder_id}"
