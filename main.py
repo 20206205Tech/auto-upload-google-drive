@@ -1,13 +1,10 @@
 import json
-import re
-from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
 
 import typer
-from google.auth.transport.requests import AuthorizedSession
+from google.auth.transport.requests import AuthorizedSession, Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
+from google_auth_oauthlib.flow import InstalledAppFlow
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,71 +13,73 @@ import env
 from database.config import SessionLocal
 from database.models import GoogleAccount, User
 
-app = typer.Typer(help="Google Drive OAuth tools.")
+app = typer.Typer(help="Google Drive local OAuth tools.")
 
 SCOPES = [
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/drive",
 ]
-REDIRECT_URI = "http://localhost:8080/"
-PKCE_VERIFIER_PATTERN = re.compile(r"[A-Za-z0-9._~-]{43,128}")
+
+
+@app.callback()
+def callback() -> None:
+    """Google Drive local OAuth tools."""
 
 
 def load_google_client_config() -> dict[str, Any]:
-    """Load Google OAuth client JSON from env text or a file path."""
+    """Load Google OAuth client JSON from GOOGLE_CREDENTIALS."""
     raw_credentials = env.GOOGLE_CREDENTIALS.strip()
 
-    if raw_credentials.startswith("{"):
-        return json.loads(raw_credentials)
+    if not raw_credentials:
+        raise ValueError("Missing GOOGLE_CREDENTIALS environment variable.")
 
-    credentials_path = Path(raw_credentials)
-    if credentials_path.exists():
-        return json.loads(credentials_path.read_text(encoding="utf-8"))
+    return json.loads(raw_credentials)
 
-    raise typer.BadParameter(
-        "GOOGLE_CREDENTIALS must be Google OAuth JSON content or a path to JSON file."
+
+def get_saved_google_account(db: Session, gmail_address: str) -> GoogleAccount | None:
+    return db.scalar(
+        select(GoogleAccount).join(User).where(User.email == gmail_address)
     )
 
 
-def build_flow(
-    code_verifier: str | None = None,
-    autogenerate_code_verifier: bool = False,
-) -> Flow:
-    flow = Flow.from_client_config(
-        load_google_client_config(),
-        scopes=SCOPES,
-        code_verifier=code_verifier,
-        autogenerate_code_verifier=autogenerate_code_verifier,
+def credentials_from_database(
+    db: Session,
+    gmail_address: str,
+) -> Credentials | None:
+    google_account = get_saved_google_account(db, gmail_address)
+    if google_account is None:
+        return None
+
+    return Credentials.from_authorized_user_info(google_account.token_data, SCOPES)
+
+
+def get_local_credentials(
+    db: Session,
+    gmail_address: str | None,
+    port: int,
+) -> Credentials:
+    """Open browser locally only when no usable token exists in the database."""
+    credentials = (
+        credentials_from_database(db, gmail_address) if gmail_address else None
     )
-    flow.redirect_uri = REDIRECT_URI
-    return flow
+    if credentials and credentials.valid:
+        return credentials
 
+    if credentials and credentials.expired and credentials.refresh_token:
+        credentials.refresh(Request())
+    else:
+        flow = InstalledAppFlow.from_client_config(
+            load_google_client_config(),
+            SCOPES,
+        )
+        credentials = flow.run_local_server(
+            port=port,
+            access_type="offline",
+            prompt="consent",
+        )
 
-def extract_code(code_or_url: str) -> str:
-    cleaned_value = code_or_url.strip().strip("\"'")
-
-    if cleaned_value.startswith("http://") or cleaned_value.startswith("https://"):
-        parsed_url = urlparse(cleaned_value)
-        query_values = parse_qs(parsed_url.query)
-        code_values = query_values.get("code")
-        if code_values:
-            return code_values[0]
-
-    code_match = re.search(r"(?:^|[?&\s])code=([^&\s]+)", cleaned_value)
-    if code_match:
-        return code_match.group(1)
-
-    return cleaned_value
-
-
-def clean_code_verifier(code_verifier: str) -> str:
-    cleaned_value = code_verifier.strip().strip("\"'")
-    verifier_matches = PKCE_VERIFIER_PATTERN.findall(cleaned_value)
-    if verifier_matches:
-        return verifier_matches[-1]
-
-    return cleaned_value
+    return credentials
 
 
 def get_google_email(credentials: Credentials) -> str:
@@ -128,68 +127,33 @@ def upsert_google_account(
     db.commit()
 
 
-@app.command("auth-url")
-def auth_url(
-    code_verifier: str
+@app.command("local-auth")
+def local_auth(
+    gmail_address: str
     | None = typer.Option(
         None,
-        help="Optional PKCE code verifier. Use the same value with save-google-account.",
+        help="Existing Gmail address to refresh from database before opening browser.",
+    ),
+    port: int = typer.Option(
+        0,
+        help="Local callback port. Use 0 to choose a free port automatically.",
     ),
 ) -> None:
-    """Print the Google OAuth URL to authorize one Google account."""
-    cleaned_code_verifier = (
-        clean_code_verifier(code_verifier) if code_verifier else None
-    )
-    flow = build_flow(
-        code_verifier=cleaned_code_verifier,
-        autogenerate_code_verifier=cleaned_code_verifier is None,
-    )
-    authorization_url, _ = flow.authorization_url(
-        access_type="offline",
-        include_granted_scopes="true",
-        prompt="consent",
-    )
-
-    typer.echo("Open this URL in your browser:")
-    typer.echo(authorization_url)
-    typer.echo("")
-    typer.echo("Save this CODE_VERIFIER for the save-google-account step:")
-    typer.echo(flow.code_verifier)
-    typer.echo("")
-    typer.echo(
-        "After approving, copy the full redirect URL or the code=... value from it."
-    )
-
-
-@app.command("save-google-account")
-def save_google_account(
-    code: str = typer.Option(
-        ..., help="The full redirect URL or code value copied from Google."
-    ),
-    code_verifier: str = typer.Option(
-        ...,
-        help="The CODE_VERIFIER printed by the auth-url command.",
-    ),
-) -> None:
-    """Exchange a Google OAuth code for tokens and save them to the database."""
-    flow = build_flow(code_verifier=clean_code_verifier(code_verifier))
-    flow.fetch_token(code=extract_code(code))
-
-    credentials = flow.credentials
-    gmail_address = get_google_email(credentials)
-    token_data = json.loads(credentials.to_json())
-
+    """Open the browser on this computer, authorize Google, and save token to DB."""
     db = SessionLocal()
     try:
-        upsert_google_account(db, gmail_address, token_data)
+        credentials = get_local_credentials(db, gmail_address, port)
+        authenticated_gmail_address = get_google_email(credentials)
+        token_data = json.loads(credentials.to_json())
+        upsert_google_account(db, authenticated_gmail_address, token_data)
     finally:
         db.close()
 
-    typer.echo(f"Saved Google account: {gmail_address}")
+    typer.echo(f"Saved Google account to database: {authenticated_gmail_address}")
 
 
 def main() -> None:
-    logger.info("Google OAuth CLI started")
+    logger.info("Google local OAuth CLI started")
     app()
 
 
