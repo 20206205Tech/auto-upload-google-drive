@@ -1,1 +1,0 @@
-Xin chào! Đây là tệp được tải lên tự động từ mã Python.

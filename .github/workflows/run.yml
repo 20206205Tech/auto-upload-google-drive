@@ -8,17 +8,16 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'Chọn hành động để chạy'
+        description: "Choose command to run"
         required: true
         type: choice
         options:
-          - hello
-          - goodbye
-      name_input:
-        description: 'Tên để truyền vào lệnh'
-        required: true
+          - auth-url
+          - save-google-account
+      google_code:
+        description: "Paste code=... from Google redirect URL. Required for save-google-account."
+        required: false
         type: string
-        default: 'Nghia'
 
 jobs:
   run:
@@ -44,25 +43,28 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      # Bước help luôn chạy dù là push, pull_request hay workflow_dispatch
-      - name: help
+      - name: Show help
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
           doppler run -p auto-upload-google-drive -c prod -- uv run python main.py --help
 
-      # Chỉ chạy nếu trigger bằng tay (workflow_dispatch) VÀ người dùng chọn "hello"
-      - name: hello
-        if: github.event_name == 'workflow_dispatch' && inputs.action == 'hello'
+      - name: Print Google authorization URL
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'auth-url'
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
-          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py hello ${{ inputs.name_input }}
+          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py auth-url
 
-      # Chỉ chạy nếu trigger bằng tay (workflow_dispatch) VÀ người dùng chọn "goodbye"
-      - name: goodbye
-        if: github.event_name == 'workflow_dispatch' && inputs.action == 'goodbye'
+      - name: Save Google account token to database
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'save-google-account'
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+          GOOGLE_CODE: ${{ inputs.google_code }}
         run: |
-          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py goodbye ${{ inputs.name_input }}
+          if [ -z "$GOOGLE_CODE" ]; then
+            echo "google_code is required for save-google-account"
+            exit 1
+          fi
+
+          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py save-google-account --code "$GOOGLE_CODE"

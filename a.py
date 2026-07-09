@@ -98,7 +98,7 @@ def main():
 
         if folder_id:
             # Bước C: Định nghĩa tệp cần tải lên (Ví dụ tạo một file test nhanh)
-            ten_file_tai_len = "test_drive.txt"
+            ten_file_tai_len = "test.txt"
             with open(ten_file_tai_len, "w", encoding="utf-8") as f:
                 f.write("Xin chào! Đây là tệp được tải lên tự động từ mã Python.")
 
