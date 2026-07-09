@@ -57,8 +57,14 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.action == 'auth-url'
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+          GOOGLE_CODE_VERIFIER: ${{ inputs.google_code_verifier }}
         run: |
-          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py auth-url
+          if [ -n "$GOOGLE_CODE_VERIFIER" ]; then
+            echo "::add-mask::$GOOGLE_CODE_VERIFIER"
+            doppler run -p auto-upload-google-drive -c prod -- uv run python main.py auth-url --code-verifier "$GOOGLE_CODE_VERIFIER"
+          else
+            doppler run -p auto-upload-google-drive -c prod -- uv run python main.py auth-url
+          fi
 
       - name: Save Google account token to database
         if: github.event_name == 'workflow_dispatch' && inputs.action == 'save-google-account'
@@ -76,5 +82,8 @@ jobs:
             echo "google_code_verifier is required for save-google-account"
             exit 1
           fi
+
+          echo "::add-mask::$GOOGLE_CODE"
+          echo "::add-mask::$GOOGLE_CODE_VERIFIER"
 
           doppler run -p auto-upload-google-drive -c prod -- uv run python main.py save-google-account --code "$GOOGLE_CODE" --code-verifier "$GOOGLE_CODE_VERIFIER"
