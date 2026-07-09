@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -23,6 +24,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 REDIRECT_URI = "http://localhost:8080/"
+PKCE_VERIFIER_PATTERN = re.compile(r"[A-Za-z0-9._~-]{43,128}")
 
 
 def load_google_client_config() -> dict[str, Any]:
@@ -56,14 +58,29 @@ def build_flow(
 
 
 def extract_code(code_or_url: str) -> str:
-    if code_or_url.startswith("http://") or code_or_url.startswith("https://"):
-        parsed_url = urlparse(code_or_url)
+    cleaned_value = code_or_url.strip().strip("\"'")
+
+    if cleaned_value.startswith("http://") or cleaned_value.startswith("https://"):
+        parsed_url = urlparse(cleaned_value)
         query_values = parse_qs(parsed_url.query)
         code_values = query_values.get("code")
         if code_values:
             return code_values[0]
 
-    return code_or_url
+    code_match = re.search(r"(?:^|[?&\s])code=([^&\s]+)", cleaned_value)
+    if code_match:
+        return code_match.group(1)
+
+    return cleaned_value
+
+
+def clean_code_verifier(code_verifier: str) -> str:
+    cleaned_value = code_verifier.strip().strip("\"'")
+    verifier_matches = PKCE_VERIFIER_PATTERN.findall(cleaned_value)
+    if verifier_matches:
+        return verifier_matches[-1]
+
+    return cleaned_value
 
 
 def get_google_email(credentials: Credentials) -> str:
@@ -112,9 +129,21 @@ def upsert_google_account(
 
 
 @app.command("auth-url")
-def auth_url() -> None:
+def auth_url(
+    code_verifier: str
+    | None = typer.Option(
+        None,
+        help="Optional PKCE code verifier. Use the same value with save-google-account.",
+    ),
+) -> None:
     """Print the Google OAuth URL to authorize one Google account."""
-    flow = build_flow(autogenerate_code_verifier=True)
+    cleaned_code_verifier = (
+        clean_code_verifier(code_verifier) if code_verifier else None
+    )
+    flow = build_flow(
+        code_verifier=cleaned_code_verifier,
+        autogenerate_code_verifier=cleaned_code_verifier is None,
+    )
     authorization_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
@@ -143,7 +172,7 @@ def save_google_account(
     ),
 ) -> None:
     """Exchange a Google OAuth code for tokens and save them to the database."""
-    flow = build_flow(code_verifier=code_verifier)
+    flow = build_flow(code_verifier=clean_code_verifier(code_verifier))
     flow.fetch_token(code=extract_code(code))
 
     credentials = flow.credentials
