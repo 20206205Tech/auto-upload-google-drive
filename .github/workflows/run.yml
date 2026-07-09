@@ -11,7 +11,7 @@ on:
 
 
 jobs:
-  data_pipeline:
+  run:
     runs-on: ubuntu-latest
 
     steps:
@@ -38,4 +38,4 @@ jobs:
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
-          doppler run -p 20206205tech -c prod -- uv run python main.py
+          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py
