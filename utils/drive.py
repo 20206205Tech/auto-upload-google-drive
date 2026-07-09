@@ -1,27 +1,11 @@
-from io import BytesIO
 from typing import Any
 
-from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
+from googleapiclient.errors import HttpError
 from loguru import logger
 
 from utils.time import get_hanoi_time
 
 FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
-GOOGLE_WORKSPACE_EXPORTS = {
-    "application/vnd.google-apps.document": (
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        ".docx",
-    ),
-    "application/vnd.google-apps.spreadsheet": (
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        ".xlsx",
-    ),
-    "application/vnd.google-apps.presentation": (
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        ".pptx",
-    ),
-    "application/vnd.google-apps.drawing": ("application/pdf", ".pdf"),
-}
 
 
 def create_drive_folder(service, folder_name: str, parent_id: str | None = None) -> str:
@@ -103,49 +87,6 @@ def list_folder_children(source_service, folder_id: str) -> list[dict[str, Any]]
             return children
 
 
-def download_file(source_service, file_id: str, mime_type: str) -> BytesIO:
-    file_buffer = BytesIO()
-    if mime_type in GOOGLE_WORKSPACE_EXPORTS:
-        export_mime_type, _ = GOOGLE_WORKSPACE_EXPORTS[mime_type]
-        request = source_service.files().export_media(
-            fileId=file_id,
-            mimeType=export_mime_type,
-        )
-    else:
-        request = source_service.files().get_media(fileId=file_id)
-
-    downloader = MediaIoBaseDownload(file_buffer, request)
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
-
-    file_buffer.seek(0)
-    return file_buffer
-
-
-def upload_file(
-    dest_service,
-    file_name: str,
-    parent_id: str,
-    source_mime_type: str,
-    file_buffer: BytesIO,
-) -> str:
-    upload_mime_type = source_mime_type
-    if source_mime_type in GOOGLE_WORKSPACE_EXPORTS:
-        upload_mime_type, extension = GOOGLE_WORKSPACE_EXPORTS[source_mime_type]
-        if not file_name.endswith(extension):
-            file_name = f"{file_name}{extension}"
-
-    metadata = {"name": file_name, "parents": [parent_id]}
-    media = MediaIoBaseUpload(file_buffer, mimetype=upload_mime_type, resumable=True)
-    uploaded_file = (
-        dest_service.files()
-        .create(body=metadata, media_body=media, fields="id")
-        .execute()
-    )
-    return uploaded_file["id"]
-
-
 def trash_source_item(source_service, item_id: str) -> None:
     source_service.files().update(
         fileId=item_id,
@@ -154,11 +95,54 @@ def trash_source_item(source_service, item_id: str) -> None:
     ).execute()
 
 
+def share_source_item_with_destination(
+    source_service,
+    item_id: str,
+    dest_gmail: str,
+) -> None:
+    try:
+        source_service.permissions().create(
+            fileId=item_id,
+            body={
+                "type": "user",
+                "role": "reader",
+                "emailAddress": dest_gmail,
+            },
+            sendNotificationEmail=False,
+            supportsAllDrives=True,
+            fields="id",
+        ).execute()
+    except HttpError as error:
+        if getattr(error, "resp", None) is not None and error.resp.status == 409:
+            return
+        raise
+
+
+def copy_file_server_side(
+    dest_service,
+    source_file_id: str,
+    file_name: str,
+    dest_parent_id: str,
+) -> str:
+    copied_file = (
+        dest_service.files()
+        .copy(
+            fileId=source_file_id,
+            body={"name": file_name, "parents": [dest_parent_id]},
+            fields="id",
+            supportsAllDrives=True,
+        )
+        .execute()
+    )
+    return copied_file["id"]
+
+
 def copy_item_then_delete_source(
     source_service,
     dest_service,
     item: dict[str, Any],
     dest_parent_id: str,
+    dest_gmail: str,
 ) -> None:
     item_id = item["id"]
     item_name = item["name"]
@@ -171,13 +155,14 @@ def copy_item_then_delete_source(
             dest_service,
             item_id,
             new_folder_id,
+            dest_gmail,
         )
         trash_source_item(source_service, item_id)
         logger.info(f"Moved folder: {item_name}")
         return
 
-    file_buffer = download_file(source_service, item_id, item_mime_type)
-    upload_file(dest_service, item_name, dest_parent_id, item_mime_type, file_buffer)
+    share_source_item_with_destination(source_service, item_id, dest_gmail)
+    copy_file_server_side(dest_service, item_id, item_name, dest_parent_id)
     trash_source_item(source_service, item_id)
     logger.info(f"Moved file: {item_name}")
 
@@ -187,11 +172,17 @@ def copy_folder_contents_then_delete_source(
     dest_service,
     source_folder_id: str,
     dest_folder_id: str,
+    dest_gmail: str,
 ) -> None:
-    for child in list_folder_children(source_service, source_folder_id):
+    children = list_folder_children(source_service, source_folder_id)
+    logger.info(f"Found {len(children)} item(s) in source folder {source_folder_id}")
+
+    for index, child in enumerate(children, start=1):
+        logger.info(f"Moving {index}/{len(children)}: {child['name']}")
         copy_item_then_delete_source(
             source_service,
             dest_service,
             child,
             dest_folder_id,
+            dest_gmail,
         )

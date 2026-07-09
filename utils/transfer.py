@@ -64,6 +64,7 @@ def transfer_folder_contents(
             dest_service,
             source_folder_id,
             dest_folder_id,
+            dest_gmail,
         )
         complete_transfer_job(db, transfer_job)
     except Exception as error:
