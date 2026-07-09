@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import typer
 from google.auth.transport.requests import AuthorizedSession
@@ -40,10 +41,29 @@ def load_google_client_config() -> dict[str, Any]:
     )
 
 
-def build_flow() -> Flow:
-    flow = Flow.from_client_config(load_google_client_config(), scopes=SCOPES)
+def build_flow(
+    code_verifier: str | None = None,
+    autogenerate_code_verifier: bool = False,
+) -> Flow:
+    flow = Flow.from_client_config(
+        load_google_client_config(),
+        scopes=SCOPES,
+        code_verifier=code_verifier,
+        autogenerate_code_verifier=autogenerate_code_verifier,
+    )
     flow.redirect_uri = REDIRECT_URI
     return flow
+
+
+def extract_code(code_or_url: str) -> str:
+    if code_or_url.startswith("http://") or code_or_url.startswith("https://"):
+        parsed_url = urlparse(code_or_url)
+        query_values = parse_qs(parsed_url.query)
+        code_values = query_values.get("code")
+        if code_values:
+            return code_values[0]
+
+    return code_or_url
 
 
 def get_google_email(credentials: Credentials) -> str:
@@ -94,7 +114,7 @@ def upsert_google_account(
 @app.command("auth-url")
 def auth_url() -> None:
     """Print the Google OAuth URL to authorize one Google account."""
-    flow = build_flow()
+    flow = build_flow(autogenerate_code_verifier=True)
     authorization_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
@@ -104,18 +124,27 @@ def auth_url() -> None:
     typer.echo("Open this URL in your browser:")
     typer.echo(authorization_url)
     typer.echo("")
-    typer.echo("After approving, copy the code=... value from the redirect URL.")
+    typer.echo("Save this CODE_VERIFIER for the save-google-account step:")
+    typer.echo(flow.code_verifier)
+    typer.echo("")
+    typer.echo(
+        "After approving, copy the full redirect URL or the code=... value from it."
+    )
 
 
 @app.command("save-google-account")
 def save_google_account(
     code: str = typer.Option(
-        ..., help="The code value copied from Google's redirect URL."
+        ..., help="The full redirect URL or code value copied from Google."
+    ),
+    code_verifier: str = typer.Option(
+        ...,
+        help="The CODE_VERIFIER printed by the auth-url command.",
     ),
 ) -> None:
     """Exchange a Google OAuth code for tokens and save them to the database."""
-    flow = build_flow()
-    flow.fetch_token(code=code)
+    flow = build_flow(code_verifier=code_verifier)
+    flow.fetch_token(code=extract_code(code))
 
     credentials = flow.credentials
     gmail_address = get_google_email(credentials)
