@@ -1,14 +1,24 @@
 name: run
 
 on:
-  workflow_dispatch:
-  # repository_dispatch:
-  #   types: [data_pipeline_trigger]
   push:
     branches: [main]
   pull_request:
     branches: [main]
-
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Chọn hành động để chạy'
+        required: true
+        type: choice
+        options:
+          - hello
+          - goodbye
+      name_input:
+        description: 'Tên để truyền vào lệnh'
+        required: true
+        type: string
+        default: 'Nghia'
 
 jobs:
   run:
@@ -34,8 +44,25 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: main
+      # Bước help luôn chạy dù là push, pull_request hay workflow_dispatch
+      - name: help
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
-          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py
+          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py --help
+
+      # Chỉ chạy nếu trigger bằng tay (workflow_dispatch) VÀ người dùng chọn "hello"
+      - name: hello
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'hello'
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        run: |
+          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py hello ${{ inputs.name_input }}
+
+      # Chỉ chạy nếu trigger bằng tay (workflow_dispatch) VÀ người dùng chọn "goodbye"
+      - name: goodbye
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'goodbye'
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        run: |
+          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py goodbye ${{ inputs.name_input }}
