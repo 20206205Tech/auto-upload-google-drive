@@ -38,4 +38,9 @@ jobs:
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
-          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py --help
+          # doppler run -p auto-upload-google-drive -c prod -- uv run python main.py --help
+          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py hello Python
+# uv run python main.py --help
+# uv run python main.py hello Python
+# uv run python main.py hello Python --formal
+# uv run python main.py goodbye Python
