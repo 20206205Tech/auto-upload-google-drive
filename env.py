@@ -6,3 +6,4 @@ logger.info("Loading environment variables...")
 
 
 DATABASE_URL = env.str("DATABASE_URL")
+GOOGLE_CREDENTIALS = env.str("GOOGLE_CREDENTIALS")
