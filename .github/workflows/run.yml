@@ -13,11 +13,6 @@ on:
         type: choice
         options:
           - transfer
-          - refresh
-      gmail_address:
-        description: "Optional Gmail address to refresh. Defaults to GOOGLE_REFRESH_GMAIL in Doppler."
-        required: false
-        type: string
       source_gmail:
         description: "Source Gmail account for transfer."
         required: false
@@ -64,16 +59,10 @@ jobs:
         run: uv run python main.py --help
 
       - name: Refresh Google token
-        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.action == 'refresh')
+        if: github.event_name == 'schedule'
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
-          GMAIL_ADDRESS: ${{ inputs.gmail_address }}
-        run: |
-          if [ -n "$GMAIL_ADDRESS" ]; then
-            doppler run -p auto-upload-google-drive -c prod -- uv run python main.py refresh --gmail-address "$GMAIL_ADDRESS"
-          else
-            doppler run -p auto-upload-google-drive -c prod -- uv run python main.py refresh
-          fi
+        run: doppler run -p auto-upload-google-drive -c prod -- uv run python main.py refresh
 
       - name: Transfer Google Drive folder contents
         if: github.event_name == 'workflow_dispatch' && inputs.action == 'transfer'

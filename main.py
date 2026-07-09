@@ -65,6 +65,10 @@ def get_saved_google_account(db: Session, gmail_address: str) -> GoogleAccount |
     )
 
 
+def get_active_google_accounts(db: Session) -> list[GoogleAccount]:
+    return list(db.scalars(select(GoogleAccount).where(GoogleAccount.is_active)))
+
+
 def credentials_from_database(
     db: Session,
     gmail_address: str,
@@ -406,27 +410,31 @@ def local_auth(
 
 
 @app.command("refresh")
-def refresh(
-    gmail_address: str = typer.Option(
-        "",
-        help="Gmail address to refresh. Defaults to GOOGLE_REFRESH_GMAIL.",
-    ),
-) -> None:
-    """Refresh a saved Google token from the database and write it back."""
-    target_gmail_address = gmail_address or env.GOOGLE_REFRESH_GMAIL
-    if not target_gmail_address:
-        raise typer.BadParameter("Provide --gmail-address or set GOOGLE_REFRESH_GMAIL.")
-
+def refresh() -> None:
+    """Refresh all active saved Google tokens from the database."""
     db = SessionLocal()
+    refreshed_gmail_addresses: list[str] = []
     try:
-        credentials = refresh_credentials_from_database(db, target_gmail_address)
-        authenticated_gmail_address = get_google_email(credentials)
-        token_data = json.loads(credentials.to_json())
-        upsert_google_account(db, authenticated_gmail_address, token_data)
+        google_accounts = get_active_google_accounts(db)
+        if not google_accounts:
+            typer.echo("No active Google accounts found to refresh.")
+            return
+
+        for google_account in google_accounts:
+            credentials = refresh_credentials_from_database(
+                db,
+                google_account.gmail_address,
+            )
+            authenticated_gmail_address = get_google_email(credentials)
+            token_data = json.loads(credentials.to_json())
+            upsert_google_account(db, authenticated_gmail_address, token_data)
+            refreshed_gmail_addresses.append(authenticated_gmail_address)
     finally:
         db.close()
 
-    typer.echo(f"Refreshed Google account in database: {authenticated_gmail_address}")
+    typer.echo(
+        "Refreshed Google accounts in database: " + ", ".join(refreshed_gmail_addresses)
+    )
 
 
 @app.command("transfer")
