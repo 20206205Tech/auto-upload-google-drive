@@ -1,9 +1,10 @@
+
+
+
 name: run
 
 on:
   workflow_dispatch:
-  # repository_dispatch:
-  #   types: [data_pipeline_trigger]
   push:
     branches: [main]
   pull_request:
@@ -78,7 +79,7 @@ jobs:
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
-          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py hello Python
+          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py hello Nghia
 
 
 
@@ -88,4 +89,4 @@ jobs:
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
-          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py goodbye Python
+          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py goodbye Nghia
