@@ -6,6 +6,22 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    # inputs:
+    #   action:
+    #     description: "Choose command to run"
+    #     required: true
+    #     type: choice
+    #     options:
+    #       - auth-url
+    #       - save-google-account
+    #   google_code:
+    #     description: "Paste full redirect URL or code=... from Google. Required for save-google-account."
+    #     required: false
+    #     type: string
+    #   google_code_verifier:
+    #     description: "Paste CODE_VERIFIER printed by auth-url. Required for save-google-account."
+    #     required: false
+    #     type: string
 
 jobs:
   run:
@@ -14,6 +30,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Install Doppler CLI
+        uses: dopplerhq/cli-action@v1
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -28,7 +47,43 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Show CLI help
+      - name: Show help
         env:
-          DATABASE_URL: postgresql://user:pass@localhost/db
-        run: uv run python main.py --help
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        run: |
+          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py --help
+
+      # - name: Print Google authorization URL
+      #   if: github.event_name == 'workflow_dispatch' && inputs.action == 'auth-url'
+      #   env:
+      #     DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+      #     GOOGLE_CODE_VERIFIER: ${{ inputs.google_code_verifier }}
+      #   run: |
+      #     if [ -n "$GOOGLE_CODE_VERIFIER" ]; then
+      #       echo "::add-mask::$GOOGLE_CODE_VERIFIER"
+      #       doppler run -p auto-upload-google-drive -c prod -- uv run python main.py auth-url --code-verifier "$GOOGLE_CODE_VERIFIER"
+      #     else
+      #       doppler run -p auto-upload-google-drive -c prod -- uv run python main.py auth-url
+      #     fi
+
+      # - name: Save Google account token to database
+      #   if: github.event_name == 'workflow_dispatch' && inputs.action == 'save-google-account'
+      #   env:
+      #     DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+      #     GOOGLE_CODE: ${{ inputs.google_code }}
+      #     GOOGLE_CODE_VERIFIER: ${{ inputs.google_code_verifier }}
+      #   run: |
+      #     if [ -z "$GOOGLE_CODE" ]; then
+      #       echo "google_code is required for save-google-account"
+      #       exit 1
+      #     fi
+
+      #     if [ -z "$GOOGLE_CODE_VERIFIER" ]; then
+      #       echo "google_code_verifier is required for save-google-account"
+      #       exit 1
+      #     fi
+
+      #     echo "::add-mask::$GOOGLE_CODE"
+      #     echo "::add-mask::$GOOGLE_CODE_VERIFIER"
+
+      #     doppler run -p auto-upload-google-drive -c prod -- uv run python main.py save-google-account --code "$GOOGLE_CODE" --code-verifier "$GOOGLE_CODE_VERIFIER"
