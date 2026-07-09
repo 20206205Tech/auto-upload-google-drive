@@ -4,7 +4,8 @@ import env
 
 
 def main():
-    logger.info(env.DATABASE_URL[:3])
+    logger.info(len(env.DATABASE_URL))
+    logger.info(len(env.GOOGLE_CREDENTIALS))
 
 
 if __name__ == "__main__":

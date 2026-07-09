@@ -25,6 +25,7 @@ dependencies = [
     { name = "environs" },
     { name = "loguru" },
     { name = "psycopg2-binary" },
+    { name = "sqlalchemy" },
 ]
 
 [package.dev-dependencies]
@@ -38,6 +39,7 @@ requires-dist = [
     { name = "environs", specifier = ">=15.0.1" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "psycopg2-binary", specifier = ">=2.9.12" },
+    { name = "sqlalchemy", specifier = ">=2.0.51" },
 ]
 
 [package.metadata.requires-dev]
