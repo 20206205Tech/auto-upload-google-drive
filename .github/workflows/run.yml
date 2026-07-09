@@ -1,92 +1,68 @@
-
-
-
 name: run
 
 on:
-  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Chọn hành động để chạy'
+        required: true
+        type: choice
+        options:
+          - hello
+          - goodbye
+      name_input:
+        description: 'Tên để truyền vào lệnh'
+        required: true
+        type: string
+        default: 'Nghia'
 
 jobs:
   run:
     runs-on: ubuntu-latest
 
     steps:
-
-
-
-
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
-
-
-
-
-
       - name: Install Doppler CLI
         uses: dopplerhq/cli-action@v1
-
-
-
-
-
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
 
-
-
-
-
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version-file: ".python-version"
 
-
-
-
-
-
       - name: Install dependencies
         run: uv sync
 
-
-
-
-
-
+      # Bước help luôn chạy dù là push, pull_request hay workflow_dispatch
       - name: help
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
           doppler run -p auto-upload-google-drive -c prod -- uv run python main.py --help
 
-
-
-
-
+      # Chỉ chạy nếu trigger bằng tay (workflow_dispatch) VÀ người dùng chọn "hello"
       - name: hello
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'hello'
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
-          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py hello Nghia
+          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py hello ${{ inputs.name_input }}
 
-
-
-
-
+      # Chỉ chạy nếu trigger bằng tay (workflow_dispatch) VÀ người dùng chọn "goodbye"
       - name: goodbye
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'goodbye'
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
-          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py goodbye Nghia
+          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py goodbye ${{ inputs.name_input }}
