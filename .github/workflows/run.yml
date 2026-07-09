@@ -1,0 +1,41 @@
+name: run
+
+on:
+  workflow_dispatch:
+  # repository_dispatch:
+  #   types: [data_pipeline_trigger]
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+
+jobs:
+  data_pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Doppler CLI
+        uses: dopplerhq/cli-action@v1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: main
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        run: |
+          doppler run -p 20206205tech -c prod -- uv run python main.py
