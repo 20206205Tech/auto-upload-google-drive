@@ -7,8 +7,27 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      action:
+        description: "Choose command to run"
+        required: true
+        type: choice
+        options:
+          - transfer
+          - refresh
       gmail_address:
         description: "Optional Gmail address to refresh. Defaults to GOOGLE_REFRESH_GMAIL in Doppler."
+        required: false
+        type: string
+      source_gmail:
+        description: "Source Gmail account for transfer."
+        required: false
+        type: string
+      source_folder:
+        description: "Source Google Drive folder URL or ID for transfer."
+        required: false
+        type: string
+      dest_gmail:
+        description: "Destination Gmail account for transfer."
         required: false
         type: string
   schedule:
@@ -45,7 +64,7 @@ jobs:
         run: uv run python main.py --help
 
       - name: Refresh Google token
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.action == 'refresh')
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
           GMAIL_ADDRESS: ${{ inputs.gmail_address }}
@@ -55,3 +74,28 @@ jobs:
           else
             doppler run -p auto-upload-google-drive -c prod -- uv run python main.py refresh
           fi
+
+      - name: Transfer Google Drive folder contents
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'transfer'
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+          SOURCE_GMAIL: ${{ inputs.source_gmail }}
+          SOURCE_FOLDER: ${{ inputs.source_folder }}
+          DEST_GMAIL: ${{ inputs.dest_gmail }}
+        run: |
+          if [ -z "$SOURCE_GMAIL" ]; then
+            echo "source_gmail is required for transfer"
+            exit 1
+          fi
+
+          if [ -z "$SOURCE_FOLDER" ]; then
+            echo "source_folder is required for transfer"
+            exit 1
+          fi
+
+          if [ -z "$DEST_GMAIL" ]; then
+            echo "dest_gmail is required for transfer"
+            exit 1
+          fi
+
+          doppler run -p auto-upload-google-drive -c prod -- uv run python main.py transfer --source-gmail "$SOURCE_GMAIL" --source-folder "$SOURCE_FOLDER" --dest-gmail "$DEST_GMAIL"
