@@ -54,31 +54,33 @@ def credentials_from_database(
     return Credentials.from_authorized_user_info(google_account.token_data, SCOPES)
 
 
-def get_local_credentials(
-    db: Session,
-    gmail_address: str | None,
-    port: int,
-) -> Credentials:
-    """Open browser locally only when no usable token exists in the database."""
-    credentials = (
-        credentials_from_database(db, gmail_address) if gmail_address else None
+def get_local_credentials(port: int) -> Credentials:
+    """Open browser locally and return newly authorized Google credentials."""
+    flow = InstalledAppFlow.from_client_config(
+        load_google_client_config(),
+        SCOPES,
     )
-    if credentials and credentials.valid:
-        return credentials
+    return flow.run_local_server(
+        port=port,
+        access_type="offline",
+        prompt="consent",
+    )
 
-    if credentials and credentials.expired and credentials.refresh_token:
-        credentials.refresh(Request())
-    else:
-        flow = InstalledAppFlow.from_client_config(
-            load_google_client_config(),
-            SCOPES,
-        )
-        credentials = flow.run_local_server(
-            port=port,
-            access_type="offline",
-            prompt="consent",
+
+def refresh_credentials_from_database(
+    db: Session,
+    gmail_address: str,
+) -> Credentials:
+    credentials = credentials_from_database(db, gmail_address)
+    if credentials is None:
+        raise ValueError(f"No saved Google account found for {gmail_address}.")
+
+    if not credentials.refresh_token:
+        raise ValueError(
+            f"Saved Google account for {gmail_address} has no refresh_token."
         )
 
+    credentials.refresh(Request())
     return credentials
 
 
@@ -129,27 +131,47 @@ def upsert_google_account(
 
 @app.command("local-auth")
 def local_auth(
-    gmail_address: str
-    | None = typer.Option(
-        None,
-        help="Existing Gmail address to refresh from database before opening browser.",
-    ),
     port: int = typer.Option(
         0,
         help="Local callback port. Use 0 to choose a free port automatically.",
     ),
 ) -> None:
     """Open the browser on this computer, authorize Google, and save token to DB."""
+    credentials = get_local_credentials(port)
+    authenticated_gmail_address = get_google_email(credentials)
+    token_data = json.loads(credentials.to_json())
+
     db = SessionLocal()
     try:
-        credentials = get_local_credentials(db, gmail_address, port)
+        upsert_google_account(db, authenticated_gmail_address, token_data)
+    finally:
+        db.close()
+
+    typer.echo(f"Saved Google account to database: {authenticated_gmail_address}")
+
+
+@app.command("refresh")
+def refresh(
+    gmail_address: str = typer.Option(
+        "",
+        help="Gmail address to refresh. Defaults to GOOGLE_REFRESH_GMAIL.",
+    ),
+) -> None:
+    """Refresh a saved Google token from the database and write it back."""
+    target_gmail_address = gmail_address or env.GOOGLE_REFRESH_GMAIL
+    if not target_gmail_address:
+        raise typer.BadParameter("Provide --gmail-address or set GOOGLE_REFRESH_GMAIL.")
+
+    db = SessionLocal()
+    try:
+        credentials = refresh_credentials_from_database(db, target_gmail_address)
         authenticated_gmail_address = get_google_email(credentials)
         token_data = json.loads(credentials.to_json())
         upsert_google_account(db, authenticated_gmail_address, token_data)
     finally:
         db.close()
 
-    typer.echo(f"Saved Google account to database: {authenticated_gmail_address}")
+    typer.echo(f"Refreshed Google account in database: {authenticated_gmail_address}")
 
 
 def main() -> None:

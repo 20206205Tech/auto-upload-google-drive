@@ -6,4 +6,5 @@ logger.info("Loading environment variables...")
 
 
 DATABASE_URL = env.str("DATABASE_URL")
-GOOGLE_CREDENTIALS = env.str("GOOGLE_CREDENTIALS")
+GOOGLE_CREDENTIALS = env.str("GOOGLE_CREDENTIALS", "")
+GOOGLE_REFRESH_GMAIL = env.str("GOOGLE_REFRESH_GMAIL", "")
