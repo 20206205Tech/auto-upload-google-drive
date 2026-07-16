@@ -13,7 +13,7 @@ dependencies = [
     "loguru>=0.7.3",
     "psycopg2-binary>=2.9.12",
     "sqlalchemy>=2.0.51",
-    "typer>=0.26.8",
+    "typer>=0.27.0",
 ]
 
 [dependency-groups]
